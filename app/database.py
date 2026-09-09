@@ -4,12 +4,13 @@ from typing import Any, AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
 
-# Получаем URL с проверкой на None
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/cake_craft")
+from app.config import get_settings
+
+settings = get_settings()
 
 # Создаем асинхронный движок
 engine = create_async_engine(
-    DATABASE_URL,
+    settings.DATABASE_URL,
     echo=True,  # Включаем логирование SQL (для разработки)
     pool_size=5,  # Оптимально для старта
     max_overflow=10

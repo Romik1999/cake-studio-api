@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from app.config import get_settings
 from app.database import engine, Base
 
 
@@ -19,9 +20,10 @@ async def lifespan(app: FastAPI):
 
 
 # Инициализация Fastapi app
+settings = get_settings()
 app = FastAPI(
-    title=os.getenv("APP_NAME", "FastAPI"),
-    version=os.getenv("APP_VERSION", "v1"),
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
     lifespan=lifespan
 )
 
