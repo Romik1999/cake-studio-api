@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.order import Order
 
 
 class CakeConfig(Base):
@@ -47,3 +48,5 @@ class CakeConfig(Base):
     preset: Mapped["Preset"] = relationship(
         foreign_keys=[preset_id]
     )
+
+    order: Mapped["Order"] = relationship("Order", back_populates="cake_config")
