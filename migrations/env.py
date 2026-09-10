@@ -5,7 +5,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config, create_async_engine
 
-from app.config import settings
+from app.config import get_settings
+
 
 from alembic import context
 
@@ -47,6 +48,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_migrations_online() -> None:
     """Запуск миграций в онлайн-режиме (асинхронно)."""
+    settings = get_settings()
+
     connectable = create_async_engine(
         settings.DATABASE_URL,
         poolclass=pool.NullPool,
