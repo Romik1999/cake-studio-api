@@ -12,7 +12,7 @@ class Preset(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(30), unique=True, index=True)
-    description: Mapped[str] = mapped_column(String(500), nullable=True)
+    description: Mapped[str] = mapped_column(String(1000), nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     image_url: Mapped[str] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

@@ -30,7 +30,7 @@ class Ingredient(Base):
     title: Mapped[str] = mapped_column(String(30), unique=True)
     category: Mapped[CategoryEnum] = mapped_column(SQLEnum(CategoryEnum), index=True)
     image_url: Mapped[str] = mapped_column(String(500), nullable=True)
-    description: Mapped[str] = mapped_column(String(255), nullable=True)
+    description: Mapped[str] = mapped_column(String(1000), nullable=True)
     unit: Mapped[UnitEnum] = mapped_column(SQLEnum(UnitEnum))
     base_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     sort_order: Mapped[int] = mapped_column(Integer, default=1)
