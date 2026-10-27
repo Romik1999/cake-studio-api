@@ -28,6 +28,14 @@ from app.schemas.cake_config import (
     DecorationSchema,
 )
 
+from app.schemas.order import (
+    OrderStatusLogResponse,
+    OrderCreate,
+    OrderResponse,
+    OrderDetail,
+    OrderStatusUpdate
+)
+
 __all__ = [
     # Ingredient
     "IngredientCreate",
@@ -58,4 +66,10 @@ __all__ = [
     "CakeIngredientCreate",
     "CakeIngredientDetail",
     "DecorationSchema",
+    # Orders
+    "OrderStatusLogResponse",
+    "OrderCreate",
+    "OrderResponse",
+    "OrderDetail",
+    "OrderStatusUpdate"
 ]
