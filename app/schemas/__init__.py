@@ -18,6 +18,16 @@ from app.schemas.pagination import PaginatedResponse, PaginationMeta
 
 from app.schemas.user import UserBase, UserCreate, UserResponse, UserLogin, TokenResponse
 
+from app.schemas.cake_config import (
+    CakeConfigCreate,
+    CakeConfigUpdate,
+    CakeConfigResponse,
+    CakeConfigDetail,
+    CakeIngredientCreate,
+    CakeIngredientDetail,
+    DecorationSchema,
+)
+
 __all__ = [
     # Ingredient
     "IngredientCreate",
@@ -39,5 +49,13 @@ __all__ = [
     "UserCreate",
     "UserResponse",
     "UserLogin",
-    "TokenResponse"
+    "TokenResponse",
+    # CakeConfig
+    "CakeConfigCreate",
+    "CakeConfigUpdate",
+    "CakeConfigResponse",
+    "CakeConfigDetail",
+    "CakeIngredientCreate",
+    "CakeIngredientDetail",
+    "DecorationSchema",
 ]
