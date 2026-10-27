@@ -2,7 +2,9 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
+from app.api.deps import get_current_admin
 from app.database import get_session
+from app.models import User
 from app.schemas import (
     PaginatedResponse,
     PresetResponse,
@@ -81,6 +83,7 @@ async def get_preset(
 async def create_preset(
         data: PresetCreate,
         session: AsyncSession = Depends(get_session),
+        current_admin: User = Depends(get_current_admin)
 ):
     created_preset = await PresetService.create(session, data)
     await session.commit()
@@ -100,6 +103,7 @@ async def update_preset(
         preset_id: int,
         data: PresetUpdate,
         session: AsyncSession = Depends(get_session),
+        current_admin: User = Depends(get_current_admin)
 ):
     current_preset = await PresetService.update(session, preset_id, data)
 
@@ -125,6 +129,7 @@ async def update_preset(
 async def delete_preset(
         preset_id: int,
         session: AsyncSession = Depends(get_session),
+        current_admin: User = Depends(get_current_admin)
 ):
     is_delete = await PresetService.delete(session, preset_id)
 
