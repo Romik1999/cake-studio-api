@@ -36,6 +36,17 @@ from app.schemas.order import (
     OrderStatusUpdate
 )
 
+from app.schemas.statistics import (
+    DailySalesItem,
+    DailySalesResponse,
+    PopularIngredientItem,
+    PopularIngredientsResponse,
+    RevenueResponse,
+    FrequentCustomerItem,
+    FrequentCustomersResponse,
+    CancelledOrdersResponse,
+)
+
 __all__ = [
     # Ingredient
     "IngredientCreate",
@@ -71,5 +82,14 @@ __all__ = [
     "OrderCreate",
     "OrderResponse",
     "OrderDetail",
-    "OrderStatusUpdate"
+    "OrderStatusUpdate",
+    # Statistics
+    "DailySalesItem",
+    "DailySalesResponse",
+    "PopularIngredientItem",
+    "PopularIngredientsResponse",
+    "RevenueResponse",
+    "FrequentCustomerItem",
+    "FrequentCustomersResponse",
+    "CancelledOrdersResponse",
 ]
