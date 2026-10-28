@@ -44,8 +44,6 @@ class CakeConfigService:
 
         return base, base
 
-    # ==================== Чтение ====================
-
     @staticmethod
     async def get_all(
             session: AsyncSession,
@@ -76,15 +74,14 @@ class CakeConfigService:
             select(CakeConfig)
             .where(CakeConfig.id == cake_config_id)
             .options(
-                selectinload(CakeConfig.cake_ingredients).selectinload(CakeIngredient.ingredient),
+                selectinload(CakeConfig.cake_ingredients)
+                .selectinload(CakeIngredient.ingredient),
                 selectinload(CakeConfig.dough),
                 selectinload(CakeConfig.preset),
             )
         )
         result = await session.execute(query)
         return result.scalar_one_or_none()
-
-    # ==================== Создание ====================
 
     @staticmethod
     async def create(
@@ -140,8 +137,6 @@ class CakeConfigService:
 
         # Перезапрашиваем с подгруженными связями
         return await CakeConfigService.get_by_id(session, new_config.id)
-
-    # ==================== Обновление ====================
 
     @staticmethod
     async def update(
@@ -205,8 +200,6 @@ class CakeConfigService:
 
         await session.flush()
         return await CakeConfigService.get_by_id(session, config.id)
-
-    # ==================== Удаление ====================
 
     @staticmethod
     async def delete(
