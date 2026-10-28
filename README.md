@@ -9,20 +9,30 @@ Backend-приложение для кондитерской: конструкт
 - **SQLAlchemy (async)** — ORM
 - **Alembic** — миграции
 - **Pydantic v2** — валидация данных
+- **JWT (python-jose)** — авторизация и роли
 - **Docker / Docker Compose** — контейнеризация
 
 ## Структура проекта
 
-```
+```text
 cake-studio-api/
 ├── app/
-│   ├── api/v1/           # Роуты (версия 1)
+│   ├── api/
+│   │   ├── deps.py       # Зависимости (get_current_user, get_current_admin)
+│   │   └── v1/           # Роуты (версия 1)
+│   │       ├── admin/    # Роуты статистики (только для админов)
+│   │       ├── auth.py
+│   │       ├── cake_configs.py
+│   │       ├── ingredients.py
+│   │       ├── orders.py
+│   │       └── presets.py
+│   ├── core/             # Безопасность (хеширование, JWT)
 │   ├── models/           # SQLAlchemy-модели
 │   ├── schemas/          # Pydantic-схемы
 │   ├── services/         # Бизнес-логика
 │   ├── config.py         # Настройки
 │   ├── database.py       # Подключение к БД
-│   ├── seed.py           # Создание суперадмина
+│   ├── seed_demo.py      # Заполнение БД демо-данными
 │   └── main.py           # Точка входа
 ├── migrations/           # Alembic-миграции
 ├── docker-compose.yml
@@ -47,14 +57,14 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=cake-studio-api
 
-SECRET_KEY=change-me
+SECRET_KEY=change-me-super-secret-key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
 ---
 
-## 🐳 Запуск через Docker
+## 🐳 Запуск через Docker (Рекомендуется)
 
 ### Первый запуск
 
@@ -62,15 +72,19 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 # Собрать образы и поднять контейнеры
 docker-compose up -d --build
 
-# Применить миграции
+# Применить миграции (создать таблицы)
 docker-compose exec api alembic upgrade head
 
-# Создать суперадмина (сид)
-docker-compose exec api python -m app.seed
+# Заполнить БД тестовыми данными (ингредиенты, пресеты, заказы, юзеры)
+docker-compose exec api python -m app.seed_demo
 ```
 
 Приложение доступно: http://localhost:8000  
-Swagger: http://localhost:8000/docs
+Swagger (Документация): http://localhost:8000/docs
+
+> **Данные для входа в админку после сида:**
+> - **Телефон:** `79990000000`
+> - **Пароль:** `admin123`
 
 ### Ежедневная работа
 
@@ -84,7 +98,7 @@ docker-compose logs -f api
 # Остановить
 docker-compose down
 
-# Остановить + удалить данные БД
+# Остановить + удалить данные БД (полный сброс)
 docker-compose down -v
 
 # Пересобрать после изменения requirements.txt
@@ -121,70 +135,76 @@ pip install -r requirements.txt
 
 # Убедиться, что PostgreSQL запущен локально (например, через brew)
 brew services start postgresql
-
-# Создать БД
 createdb cake-studio-api
 
 # Применить миграции
 alembic upgrade head
 
-# Создать суперадмина
-python -m app.seed
+# Заполнить БД демо-данными
+python -m app.seed_demo
 ```
 
 ### Ежедневная работа
 
 ```bash
-# Активировать venv
 source .venv/bin/activate
-
-# Запустить сервер разработки
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Приложение доступно: http://localhost:8000  
-Swagger: http://localhost:8000/docs
+---
 
-### Миграции
+## 🛣 Основные эндпоинты (API v1)
 
-```bash
-alembic revision --autogenerate -m "описание"
-alembic upgrade head
-alembic downgrade -1
-```
+Все эндпоинты имеют префикс `/api/v1`.
+
+**Авторизация:**
+- `POST /auth/register` — Регистрация клиента
+- `POST /auth/login` — Получение JWT-токена
+- `GET /auth/me` — Профиль текущего пользователя
+
+**Конструктор и справочники:**
+- `GET /ingredients` — Список ингредиентов (с фильтрами)
+- `POST/PATCH/DELETE /ingredients` — Управление (только админ)
+- `GET /presets` — Список готовых пресетов
+- `POST/PATCH/DELETE /presets` — Управление (только админ)
+- `POST /cake-configs` — Собрать кастомный торт или выбрать пресет (автоматический расчёт цены)
+- `GET /cake-configs` — Список конфигураций
+
+**Заказы:**
+- `POST /orders` — Создать заказ (публичный, клиент создается автоматически по телефону)
+- `GET /orders` — Список заказов (админ видит все, клиент — только свои)
+- `GET /orders/{id}` — Детали заказа
+- `PATCH /orders/{id}/status` — Сменить статус (только админ)
+- `PATCH /orders/{id}/cancel` — Отменить заказ
+
+**Аналитика (только для админа):**
+- `GET /admin/statistics/daily` — Продажи по дням
+- `GET /admin/statistics/popular-ingredients` — Топ популярных начинок
+- `GET /admin/statistics/revenue` — Общая выручка и средний чек
+- `GET /admin/statistics/frequent-customers` — Частые клиенты
+- `GET /admin/statistics/cancelled` — Список отмененных заказов
 
 ---
 
-## Полезные команды
+## 🧪 Тестирование (Swagger)
 
-```bash
-# Зайти в контейнер
-docker-compose exec api sh
-
-# Подключиться к PostgreSQL (в контейнере)
-docker-compose exec db psql -U postgres -d cake-studio-api
-
-# Посмотреть список таблиц
-docker-compose exec db psql -U postgres -d cake-studio-api -c "\dt"
-
-# Проверить структуру таблицы
-docker-compose exec db psql -U postgres -d cake-studio-api -c "\d ingredients"
-
-# Текущая версия миграций
-docker-compose exec api alembic current
-```
+1. Откройте `http://localhost:8000/docs`.
+2. Авторизуйтесь через `POST /auth/login` (используйте телефон и пароль админа из сида).
+3. Скопируйте `access_token`.
+4. Нажмите кнопку **Authorize** (замочек в правом верхнем углу) и вставьте токен.
+5. Теперь вам доступны защищенные ручки (создание ингредиентов, статистика и т.д.).
 
 ---
 
-## Функциональность (план)
+## Функциональность (Статус MVP)
 
-- [x] Модели БД (User, Ingredient, Preset, CakeConfig, Order)
-- [x] CRUD для ингредиентов
-- [ ] CRUD для пресетов
-- [ ] Авторизация (JWT)
-- [ ] Конструктор тортов
-- [ ] Заказы и статусы
-- [ ] Статистика для админа
+- [x] Модели БД и миграции (User, Ingredient, Preset, CakeConfig, Order, StatusLog)
+- [x] CRUD для ингредиентов и пресетов
+- [x] Ролевая модель и JWT-авторизация
+- [x] Конструктор тортов с динамическим расчётом цены
+- [x] Оформление заказов и трекинг статусов
+- [x] Панель аналитики для владельца
+- [x] Скрипт демо-данных для презентации
 
 ## Лицензия
 
