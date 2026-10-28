@@ -115,7 +115,7 @@ async def get_frequent_customers(
 
 @router.get(
     "/cancelled",
-    summary="cancelled",
+    summary="Отменённые заказы",
     response_model=PaginatedResponse[OrderResponse]
 )
 async def get_cancelled_statistics(
