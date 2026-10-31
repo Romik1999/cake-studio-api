@@ -109,17 +109,12 @@ class OrderService:
     @staticmethod
     async def get_by_id(session: AsyncSession, order_id: int) -> Order | None:
         query = select(Order).where(Order.id == order_id).options(
-            # Ветка 1: cake_config → cake_ingredients → ingredient
-            selectinload(Order.cake_config)
-            .selectinload(CakeConfig.cake_ingredients)
-            .selectinload(CakeIngredient.ingredient),
-
-            # Ветка 2: user
             selectinload(Order.user),
-
-            # Ветка 3: status_log → changed_by_user
-            selectinload(Order.status_log)
-            .selectinload(OrderStatusLog.changed_by_user),
+            selectinload(Order.status_log).selectinload(OrderStatusLog.changed_by_user),
+            selectinload(Order.cake_config).selectinload(CakeConfig.cake_ingredients).selectinload(
+                CakeIngredient.ingredient),
+            selectinload(Order.cake_config).selectinload(CakeConfig.dough),
+            selectinload(Order.cake_config).selectinload(CakeConfig.preset),
         )
 
         result = await session.execute(query)
