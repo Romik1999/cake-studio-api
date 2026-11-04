@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, InstrumentedAttribute
+from sqlalchemy.orm import selectinload
 
 from app.models import CakeConfig, CakeIngredient, Ingredient, Preset
 from app.schemas import CakeConfigCreate, CakeConfigUpdate
@@ -17,7 +17,7 @@ class CakeConfigService:
             preset_id: int | None,
             dough_id: int | None,
             cake_ingredients,
-    ) -> tuple[InstrumentedAttribute[Decimal], InstrumentedAttribute[Decimal]]:
+    ) -> tuple[Decimal, Decimal]:
         """Считает (base_price, total_price)."""
         # Если выбран пресет — цена фиксирована, остальное игнорируется
         if preset_id is not None:
@@ -123,16 +123,20 @@ class CakeConfigService:
 
         # Кастомные ингредиенты — только если preset не выбран
         if data.preset_id is None and data.cake_ingredients:
-            session.add_all([
-                CakeIngredient(
-                    cake_config_id=new_config.id,
-                    ingredient_id=ci.ingredient_id,
-                    quantity=ci.quantity,
-                    added_price=ci.added_price,
-                    sort_order=ci.sort_order,
-                )
-                for ci in data.cake_ingredients
-            ])
+            cake_ingredients_list = []
+            for ci in data.cake_ingredients:
+                ingredient = await session.get(Ingredient, ci.ingredient_id)
+                if ingredient:
+                    cake_ingredients_list.append(
+                        CakeIngredient(
+                            cake_config_id=new_config.id,
+                            ingredient_id=ci.ingredient_id,
+                            quantity=ci.quantity,
+                            added_price=ingredient.base_price,
+                            sort_order=ci.sort_order,
+                        )
+                    )
+            session.add_all(cake_ingredients_list)
             await session.flush()
 
         # Перезапрашиваем с подгруженными связями
@@ -170,18 +174,22 @@ class CakeConfigService:
                 await session.delete(old_ci)
             await session.flush()
 
-            # Создаём новые
+            # Создаём новые с фиксацией цены
             if data.cake_ingredients:
-                session.add_all([
-                    CakeIngredient(
-                        cake_config_id=config.id,
-                        ingredient_id=ci.ingredient_id,
-                        quantity=ci.quantity,
-                        added_price=ci.added_price,
-                        sort_order=ci.sort_order,
-                    )
-                    for ci in data.cake_ingredients
-                ])
+                new_ingredients = []
+                for ci in data.cake_ingredients:
+                    ingredient = await session.get(Ingredient, ci.ingredient_id)
+                    if ingredient:
+                        new_ingredients.append(
+                            CakeIngredient(
+                                cake_config_id=config.id,
+                                ingredient_id=ci.ingredient_id,
+                                quantity=ci.quantity,
+                                added_price=ingredient.base_price,
+                                sort_order=ci.sort_order,
+                            )
+                        )
+                session.add_all(new_ingredients)
                 await session.flush()
 
             cake_ingredients_for_price = data.cake_ingredients
