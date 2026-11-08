@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -46,27 +46,83 @@ class OrderService:
         return await OrderService.get_by_id(session, order.id)
 
     @staticmethod
+    def _apply_filters_and_sorting(
+            base,
+            status: list[StatusEnum] | None,
+            created_from: date | None,
+            created_to: date | None,
+            search: str | None,
+            sort_by: str | None,
+            sort_order: str | None
+    ):
+        """Вспомогательный метод для применения фильтров к запросу."""
+
+        # 1. Поиск (по имени, телефону или ID)
+        if search:
+            base = base.join(Order.user)
+            search_conditions = [
+                User.name.ilike(f"%{search}%"),
+                User.phone.ilike(f"%{search}%")
+            ]
+            if search.isdigit():
+                search_conditions.append(Order.id == int(search))
+
+            base = base.where(or_(*search_conditions))
+
+        # 2. Фильтр по статусам (мультиселект)
+        if status:
+            base = base.where(Order.status.in_(status))
+
+        # 3. Фильтр по дате создания
+        if created_from:
+            base = base.where(func.date(Order.created_at) >= created_from)
+        if created_to:
+            base = base.where(func.date(Order.created_at) <= created_to)
+
+        # 4. Сортировка (защита от SQL-инъекций через белый список)
+        sort_mapping = {
+            "id": Order.id,
+            "total_price": Order.total_price,
+            "created_at": Order.created_at,
+            "delivery_date": Order.delivery_date,
+        }
+
+        if sort_by and sort_by in sort_mapping:
+            column = sort_mapping[sort_by]
+            if sort_order == "desc":
+                base = base.order_by(column.desc())
+            else:
+                base = base.order_by(column.asc())
+        else:
+            # Дефолтная сортировка
+            base = base.order_by(Order.created_at.desc())
+
+        return base
+
+    @staticmethod
     async def get_all(
             session: AsyncSession,
             page: int = 1,
             limit: int = 10,
-            status_filter: StatusEnum | None = None,
-            date_filter: date | None = None,
+            status: list[StatusEnum] | None = None,
+            created_from: date | None = None,
+            created_to: date | None = None,
+            search: str | None = None,
+            sort_by: str | None = None,
+            sort_order: str | None = None,
     ) -> tuple[list[Order], int]:
+
         base = select(Order)
+        base = OrderService._apply_filters_and_sorting(
+            base, status, created_from, created_to, search, sort_by, sort_order
+        )
 
-        if status_filter is not None:
-            base = base.where(Order.status == status_filter)
-
-        if date_filter is not None:
-            base = base.where(Order.delivery_date == date_filter)
-
+        # Считаем total (используем distinct, если был join при поиске)
         count_query = select(func.count()).select_from(base.subquery())
         total = (await session.execute(count_query)).scalar() or 0
 
         query = (
-            base.order_by(Order.created_at.desc())
-            .offset((page - 1) * limit)
+            base.offset((page - 1) * limit)
             .limit(limit)
         )
         result = await session.execute(query)
@@ -80,31 +136,30 @@ class OrderService:
             user_id: int,
             page: int = 1,
             limit: int = 10,
-            status_filter: StatusEnum | None = None,
-            date_filter: date | None = None
+            status: list[StatusEnum] | None = None,
+            created_from: date | None = None,
+            created_to: date | None = None,
+            search: str | None = None,
+            sort_by: str | None = None,
+            sort_order: str | None = None,
     ) -> tuple[list[Order], int]:
+
         base = select(Order).where(Order.user_id == user_id)
-
-        if status_filter is not None:
-            base = base.where(Order.status == status_filter)
-
-        if date_filter is not None:
-            base = base.where(Order.delivery_date == date_filter)
+        base = OrderService._apply_filters_and_sorting(
+            base, status, created_from, created_to, search, sort_by, sort_order
+        )
 
         count_query = select(func.count()).select_from(base.subquery())
         total = (await session.execute(count_query)).scalar() or 0
 
         query = (
-            base.order_by(Order.created_at.desc())
-            .offset((page - 1) * limit)
+            base.offset((page - 1) * limit)
             .limit(limit)
         )
         result = await session.execute(query)
         items = list(result.scalars().all())
 
         return items, total
-
-        pass
 
     @staticmethod
     async def get_by_id(session: AsyncSession, order_id: int) -> Order | None:

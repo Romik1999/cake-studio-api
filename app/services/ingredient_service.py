@@ -77,5 +77,5 @@ class IngredientService:
             return False
 
         await session.delete(ingredient)
-        await session.flush()
+        # await session.flush()
         return True

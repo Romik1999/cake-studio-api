@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_admin
@@ -99,12 +100,20 @@ async def delete_ingredient(
         session: AsyncSession = Depends(get_session),
         current_admin: User = Depends(get_current_admin)
 ):
-    is_delete = await IngredientService.delete(session, ingredient_id)
+    try:
+        is_delete = await IngredientService.delete(session, ingredient_id)
 
-    if not is_delete:
-        raise HTTPException(status_code=404, detail="Ингредиент не найден")
+        if not is_delete:
+            raise HTTPException(status_code=404, detail="Ингредиент не найден")
 
-    await session.commit()
+        await session.commit()
+
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить ингредиент, так как он используется в пресетах или конфигурациях тортов."
+        )
 
     return {
         "success": True,

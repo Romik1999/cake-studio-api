@@ -40,14 +40,18 @@ async def create_order(
 
 @router.get(
     "",
-    summary="Получить список заказов с пагинацией",
+    summary="Получить список заказов с пагинацией и фильтрами",
     response_model=PaginatedResponse[OrderResponse]
 )
 async def get_all_orders(
         page: int = Query(1, ge=1, description="Номер страницы"),
         limit: int = Query(10, ge=1, le=100, description="Размер страницы"),
-        status_filter: StatusEnum | None = Query(None, description="Фильтр по статусу"),
-        date_filter: date | None = Query(None, description="Фильтр по дате"),
+        status: list[StatusEnum] | None = Query(None, description="Фильтр по статусам (мультивыбор)"),
+        created_from: date | None = Query(None, description="Дата создания (от)"),
+        created_to: date | None = Query(None, description="Дата создания (до)"),
+        search: str | None = Query(None, description="Поиск по имени, телефону или ID заказа"),
+        sort_by: str | None = Query(None, description="Поле для сортировки"),
+        sort_order: str | None = Query(None, description="Направление сортировки (asc/desc)"),
         session: AsyncSession = Depends(get_session),
         current_user: User = Depends(deps.get_current_user),
 ):
@@ -56,8 +60,12 @@ async def get_all_orders(
             session,
             page=page,
             limit=limit,
-            status_filter=status_filter,
-            date_filter=date_filter,
+            status=status,
+            created_from=created_from,
+            created_to=created_to,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
     else:
         items, total = await OrderService.get_user_orders(
@@ -65,8 +73,12 @@ async def get_all_orders(
             user_id=current_user.id,
             page=page,
             limit=limit,
-            status_filter=status_filter,
-            date_filter=date_filter,
+            status=status,
+            created_from=created_from,
+            created_to=created_to,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
 
     return {

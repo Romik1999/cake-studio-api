@@ -41,6 +41,7 @@ class Ingredient(Base):
     # Связь с промежуточной таблицей
     preset_ingredients: Mapped[list["PresetIngredient"]] = relationship(
         back_populates="ingredient",
+        passive_deletes=True,
     )
 
-    cake_ingredients: Mapped[list["CakeIngredient"]] = relationship(back_populates="ingredient")
+    cake_ingredients: Mapped[list["CakeIngredient"]] = relationship(back_populates="ingredient", passive_deletes=True)
