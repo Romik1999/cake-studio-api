@@ -6,6 +6,7 @@ from app.models.cake_config import CakeConfig
 from app.models.cake_ingredient import CakeIngredient
 from app.models.order import Order, StatusEnum
 from app.models.order_status_log import OrderStatusLog
+from app.models.telegram import TelegramRecipient
 
 __all__ = [
     # Пользователи
@@ -28,4 +29,6 @@ __all__ = [
     "Order",
     "StatusEnum",
     "OrderStatusLog",
+
+    "TelegramRecipient"
 ]

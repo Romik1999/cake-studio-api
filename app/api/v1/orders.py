@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Query, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.api.deps as deps
@@ -8,6 +8,8 @@ from app.database import get_session
 from app.models import User, StatusEnum
 from app.schemas import OrderCreate, SuccessResponse, OrderDetail, PaginatedResponse, OrderResponse, OrderStatusUpdate
 from app.services.order_service import OrderService
+from app.services.telegram_service import TelegramService
+from sqlalchemy import select
 
 router = APIRouter(
     prefix="/orders",
@@ -23,6 +25,7 @@ router = APIRouter(
 )
 async def create_order(
         data: OrderCreate,
+        background_tasks: BackgroundTasks,
         session: AsyncSession = Depends(get_session)
 ):
     try:
@@ -31,6 +34,14 @@ async def create_order(
         raise HTTPException(status_code=400, detail=str(e))
 
     await session.commit()
+
+    # 👇 Ручка просто вызывает сервис, не зная про БД и админов
+    background_tasks.add_task(
+        TelegramService.notify_new_order,
+        new_order.id,
+        float(new_order.total_price),
+        new_order.delivery_address or "Самовывоз"
+    )
 
     return {
         "success": True,

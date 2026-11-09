@@ -12,6 +12,9 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     SECRET_KEY: str = os.getenv("SECRET_KEY", "SECRET_KEY_12123213")
+    # Telegram
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_BOT_USERNAME: str = os.getenv("TELEGRAM_BOT_USERNAME", "")
 
 @lru_cache()
 def get_settings() -> Settings:
