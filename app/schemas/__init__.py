@@ -47,6 +47,8 @@ from app.schemas.statistics import (
     CancelledOrdersResponse,
 )
 
+from app.schemas.telegram import (TelegramSettingsDTO, TelegramRecipientDTO, TelegramSyncDTO)
+
 __all__ = [
     # Ingredient
     "IngredientCreate",
@@ -92,4 +94,8 @@ __all__ = [
     "FrequentCustomerItem",
     "FrequentCustomersResponse",
     "CancelledOrdersResponse",
+
+    "TelegramSettingsDTO",
+    "TelegramRecipientDTO",
+    "TelegramSyncDTO"
 ]
