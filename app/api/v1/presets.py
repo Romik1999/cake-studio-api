@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette import status
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_tenant, get_tenant_admin
 from app.database import get_session
-from app.models import User
+from app.models import User, Tenant
 from app.schemas import (
     PaginatedResponse,
     PresetResponse,
@@ -27,13 +26,15 @@ router = APIRouter(
     response_model=PaginatedResponse[PresetResponse],
 )
 async def get_presets(
-        page: int = Query(1, ge=1, description="Номер страницы"),
-        limit: int = Query(10, ge=1, le=100, description="Размер страницы"),
-        is_active: bool | None = Query(None, description="Фильтр по активности"),
-        session: AsyncSession = Depends(get_session),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    limit: int = Query(10, ge=1, le=100, description="Размер страницы"),
+    is_active: bool | None = Query(None, description="Фильтр по активности"),
+    session: AsyncSession = Depends(get_session),
+    current_tenant: Tenant = Depends(get_current_tenant),
 ):
     items, total = await PresetService.get_all(
         session,
+        tenant_id=current_tenant.id,
         is_active=is_active,
         page=page,
         limit=limit,
@@ -57,10 +58,13 @@ async def get_presets(
     response_model=SuccessResponse[PresetDetail],
 )
 async def get_preset(
-        preset_id: int,
-        session: AsyncSession = Depends(get_session),
+    preset_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_tenant: Tenant = Depends(get_current_tenant),
 ):
-    current_preset = await PresetService.get_by_id(session, preset_id)
+    current_preset = await PresetService.get_by_id(
+        session, preset_id, tenant_id=current_tenant.id
+    )
 
     if not current_preset:
         raise HTTPException(
@@ -81,12 +85,19 @@ async def get_preset(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_preset(
-        data: PresetCreate,
-        session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+    data: PresetCreate,
+    session: AsyncSession = Depends(get_session),
+    current_admin: User = Depends(get_tenant_admin),
+    current_tenant: Tenant = Depends(get_current_tenant),
 ):
-    created_preset = await PresetService.create(session, data)
-    await session.commit()
+    try:
+        created_preset = await PresetService.create(
+            session, data, tenant_id=current_tenant.id
+        )
+        await session.commit()
+    except ValueError as e:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     return {
         "success": True,
@@ -100,20 +111,26 @@ async def create_preset(
     response_model=SuccessResponse[PresetDetail],
 )
 async def update_preset(
-        preset_id: int,
-        data: PresetUpdate,
-        session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+    preset_id: int,
+    data: PresetUpdate,
+    session: AsyncSession = Depends(get_session),
+    current_admin: User = Depends(get_tenant_admin),
+    current_tenant: Tenant = Depends(get_current_tenant),
 ):
-    current_preset = await PresetService.update(session, preset_id, data)
+    try:
+        current_preset = await PresetService.update(
+            session, preset_id, data, tenant_id=current_tenant.id
+        )
+        await session.commit()
+    except ValueError as e:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     if not current_preset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Пресет не найден",
         )
-
-    await session.commit()
 
     return {
         "success": True,
@@ -127,11 +144,14 @@ async def update_preset(
     response_model=SuccessResponse[dict],
 )
 async def delete_preset(
-        preset_id: int,
-        session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+    preset_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_admin: User = Depends(get_tenant_admin),
+    current_tenant: Tenant = Depends(get_current_tenant),
 ):
-    is_delete = await PresetService.delete(session, preset_id)
+    is_delete = await PresetService.delete(
+        session, preset_id, tenant_id=current_tenant.id
+    )
 
     if not is_delete:
         raise HTTPException(

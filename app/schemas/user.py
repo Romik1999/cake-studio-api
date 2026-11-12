@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from datetime import datetime
+from app.models.user import UserRole
 
 
 class UserBase(BaseModel):
@@ -14,7 +15,7 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: int
-    is_admin: bool = Field(default=False)
+    role: UserRole
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -28,3 +29,5 @@ class UserLogin(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    tenant_slug: str
+    role: UserRole

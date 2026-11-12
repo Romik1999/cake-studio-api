@@ -4,7 +4,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Order, StatusEnum, User, OrderStatusLog, CakeConfig, CakeIngredient
+from app.models import Order, StatusEnum, User, OrderStatusLog, CakeConfig, CakeIngredient, UserRole
 from app.schemas import OrderCreate
 from app.services.cake_config_service import CakeConfigService
 from app.services.user_service import UserService
@@ -12,16 +12,16 @@ from app.services.user_service import UserService
 
 class OrderService:
     @staticmethod
-    async def create(session: AsyncSession, data: OrderCreate) -> Order:
-        current_user = await UserService.get_by_phone(session, data.user_phone)
+    async def create(session: AsyncSession, data: OrderCreate, tenant_id: int) -> Order:
+        current_user = await UserService.get_by_phone(session, data.user_phone, tenant_id)
 
         if current_user is None:
-            new_user = User(name=data.user_name, phone=data.user_phone)
+            new_user = User(name=data.user_name, phone=data.user_phone, tenant_id=tenant_id, role=UserRole.CUSTOMER)
             session.add(new_user)
             await session.flush()
             current_user = new_user
 
-        cake_config = await CakeConfigService.get_by_id(session, data.cake_config_id)
+        cake_config = await CakeConfigService.get_by_id(session, data.cake_config_id, tenant_id)
         if cake_config is None:
             raise ValueError("Cake config not found")
 
@@ -32,18 +32,19 @@ class OrderService:
             delivery_date=data.delivery_date,
             delivery_time=data.delivery_time,
             delivery_address=data.delivery_address,
-            comment=data.comment
+            comment=data.comment,
+            tenant_id=tenant_id,
         )
 
         session.add(order)
         await session.flush()
 
-        log = OrderStatusLog(order_id=order.id, status=StatusEnum.NEW)
+        log = OrderStatusLog(order_id=order.id, status=StatusEnum.NEW, tenant_id=tenant_id)
 
         session.add(log)
         await session.flush()
 
-        return await OrderService.get_by_id(session, order.id)
+        return await OrderService.get_by_id(session, order.id, tenant_id)
 
     @staticmethod
     def _apply_filters_and_sorting(
@@ -53,10 +54,11 @@ class OrderService:
             created_to: date | None,
             search: str | None,
             sort_by: str | None,
-            sort_order: str | None
+            sort_order: str | None,
+            tenant_id: int
     ):
         """Вспомогательный метод для применения фильтров к запросу."""
-
+        base = base.where(Order.tenant_id == tenant_id)
         # 1. Поиск (по имени, телефону или ID)
         if search:
             base = base.join(Order.user)
@@ -102,6 +104,7 @@ class OrderService:
     @staticmethod
     async def get_all(
             session: AsyncSession,
+            tenant_id: int,
             page: int = 1,
             limit: int = 10,
             status: list[StatusEnum] | None = None,
@@ -114,7 +117,7 @@ class OrderService:
 
         base = select(Order)
         base = OrderService._apply_filters_and_sorting(
-            base, status, created_from, created_to, search, sort_by, sort_order
+            base, status, created_from, created_to, search, sort_by, sort_order, tenant_id
         )
 
         # Считаем total (используем distinct, если был join при поиске)
@@ -134,6 +137,7 @@ class OrderService:
     async def get_user_orders(
             session: AsyncSession,
             user_id: int,
+            tenant_id: int,
             page: int = 1,
             limit: int = 10,
             status: list[StatusEnum] | None = None,
@@ -144,9 +148,9 @@ class OrderService:
             sort_order: str | None = None,
     ) -> tuple[list[Order], int]:
 
-        base = select(Order).where(Order.user_id == user_id)
+        base = select(Order).where(Order.user_id == user_id, Order.tenant_id == tenant_id)
         base = OrderService._apply_filters_and_sorting(
-            base, status, created_from, created_to, search, sort_by, sort_order
+            base, status, created_from, created_to, search, sort_by, sort_order, tenant_id
         )
 
         count_query = select(func.count()).select_from(base.subquery())
@@ -162,8 +166,8 @@ class OrderService:
         return items, total
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, order_id: int) -> Order | None:
-        query = select(Order).where(Order.id == order_id).options(
+    async def get_by_id(session: AsyncSession, order_id: int, tenant_id: int) -> Order | None:
+        query = select(Order).where(Order.id == order_id, Order.tenant_id == tenant_id).options(
             selectinload(Order.user),
             selectinload(Order.status_log).selectinload(OrderStatusLog.changed_by_user),
             selectinload(Order.cake_config).selectinload(CakeConfig.cake_ingredients).selectinload(
@@ -181,10 +185,11 @@ class OrderService:
             order_id: int,
             new_status: StatusEnum,
             changed_by_id: int,
+            tenant_id: int,
             comment: str | None
     ) -> Order | None:
 
-        order = await OrderService.get_by_id(session, order_id)
+        order = await OrderService.get_by_id(session, order_id, tenant_id)
 
         if order is None:
             return None
@@ -197,15 +202,16 @@ class OrderService:
         if new_status == StatusEnum.PAID:
             order.paid_at = datetime.now(timezone.utc)
 
-        log = OrderStatusLog(order_id=order.id, status=new_status, changed_by=changed_by_id, comment=comment)
+        log = OrderStatusLog(order_id=order.id, status=new_status, changed_by=changed_by_id, comment=comment, tenant_id=tenant_id)
         session.add(log)
         await session.flush()
 
-        return await OrderService.get_by_id(session, order_id)
+        return await OrderService.get_by_id(session, order_id, tenant_id)
 
     @staticmethod
     async def cancel(
             session: AsyncSession,
+            tenant_id: int,
             order_id: int,
             changed_by_id: int,
             comment: str | None
@@ -216,5 +222,6 @@ class OrderService:
             order_id=order_id,
             new_status=StatusEnum.CANCELLED,
             changed_by_id=changed_by_id,
+            tenant_id=tenant_id,
             comment=comment
         )

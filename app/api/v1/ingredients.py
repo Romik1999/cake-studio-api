@@ -2,9 +2,9 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_tenant, get_tenant_admin
 from app.database import get_session
-from app.models import CategoryEnum, User
+from app.models import CategoryEnum, User, Tenant
 from app.schemas import PaginatedResponse, IngredientResponse, SuccessResponse, IngredientCreate, IngredientUpdate
 from app.services.ingredient_service import IngredientService
 
@@ -20,10 +20,12 @@ async def get_ingredients(
         limit: int = Query(10, ge=1, le=100, description="Размер страницы"),
         category: CategoryEnum | None = Query(None, description="Фильтр по категории"),
         is_active: bool | None = Query(None, description="Фильтр по активности"),
-        session: AsyncSession = Depends(get_session)
+        session: AsyncSession = Depends(get_session),
+        current_tenant: Tenant = Depends(get_current_tenant)
 ):
     items, total = await IngredientService.get_all(
         session,
+        tenant_id=current_tenant.id,
         category=category,
         is_active=is_active,
         page=page,
@@ -42,10 +44,17 @@ async def get_ingredients(
     }
 
 
-@router.get("/{ingredient_id}", summary="Получить ингредиент по его айди",
-            response_model=SuccessResponse[IngredientResponse])
-async def get_ingredient(ingredient_id: int, session: AsyncSession = Depends(get_session)):
-    current_ingredient = await IngredientService.get_by_id(session, ingredient_id)
+@router.get(
+    path="/{ingredient_id}",
+    summary="Получить ингредиент по его айди",
+    response_model=SuccessResponse[IngredientResponse]
+)
+async def get_ingredient(
+        ingredient_id: int,
+        session: AsyncSession = Depends(get_session),
+        current_tenant: Tenant = Depends(get_current_tenant)
+):
+    current_ingredient = await IngredientService.get_by_id(session, ingredient_id, tenant_id=current_tenant.id)
 
     if not current_ingredient:
         raise HTTPException(status_code=404, detail="Ингредиент не найден")
@@ -56,21 +65,24 @@ async def get_ingredient(ingredient_id: int, session: AsyncSession = Depends(get
     }
 
 
-@router.patch("/{ingredient_id}", summary="Обновить поля ингредиента по его айди",
-              response_model=SuccessResponse[IngredientResponse])
+@router.patch(
+    "/{ingredient_id}",
+    summary="Обновить поля ингредиента по его айди",
+    response_model=SuccessResponse[IngredientResponse]
+)
 async def update_ingredient(
         ingredient_id: int,
         data: IngredientUpdate,
         session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+        current_admin: User = Depends(get_tenant_admin),
+        current_tenant: Tenant = Depends(get_current_tenant)
 ):
-    current_ingredient = await IngredientService.update(session, ingredient_id, data)
+    current_ingredient = await IngredientService.update(session, ingredient_id, data, tenant_id=current_tenant.id)
 
     if not current_ingredient:
         raise HTTPException(status_code=404, detail="Ингредиент не найден")
 
     await session.commit()
-    await session.refresh(current_ingredient)
 
     return {
         "success": True,
@@ -78,15 +90,20 @@ async def update_ingredient(
     }
 
 
-@router.post("", summary="Создать ингредиент", response_model=SuccessResponse[IngredientResponse], status_code=201)
+@router.post(
+    "",
+    summary="Создать ингредиент",
+    response_model=SuccessResponse[IngredientResponse],
+    status_code=201
+)
 async def create_ingredient(
         data: IngredientCreate,
         session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+        current_admin: User = Depends(get_tenant_admin),
+        current_tenant: Tenant = Depends(get_current_tenant)
 ):
-    created_ingredient = await IngredientService.create(session, data)
+    created_ingredient = await IngredientService.create(session, data, tenant_id=current_tenant.id)
     await session.commit()
-    await session.refresh(created_ingredient)
 
     return {
         "success": True,
@@ -98,10 +115,11 @@ async def create_ingredient(
 async def delete_ingredient(
         ingredient_id: int,
         session: AsyncSession = Depends(get_session),
-        current_admin: User = Depends(get_current_admin)
+        current_admin: User = Depends(get_tenant_admin),
+        current_tenant: Tenant = Depends(get_current_tenant)
 ):
     try:
-        is_delete = await IngredientService.delete(session, ingredient_id)
+        is_delete = await IngredientService.delete(session, ingredient_id, tenant_id=current_tenant.id)
 
         if not is_delete:
             raise HTTPException(status_code=404, detail="Ингредиент не найден")

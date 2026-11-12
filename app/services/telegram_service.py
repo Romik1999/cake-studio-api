@@ -2,40 +2,36 @@ import httpx
 from sqlalchemy import select
 from app.database import async_session_maker
 from app.models.telegram import TelegramRecipient
-from app.models.user import User
 from app.config import get_settings
 
 settings = get_settings()
+
+TELEGRAM_API_BASE = "https://api.telegram.org"
+TELEGRAM_API_BASE_FULL = f"{TELEGRAM_API_BASE}/bot{settings.TELEGRAM_BOT_TOKEN}"
+TELEGRAM_PARSE_MODE = "HTML"
 
 class TelegramService:
     @staticmethod
     async def get_updates() -> list:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates")
+            res = await client.get(f"{TELEGRAM_API_BASE_FULL}/getUpdates")
             return res.json().get("result", [])
 
     @staticmethod
     async def send_message(chat_id: str, text: str):
         async with httpx.AsyncClient() as client:
             await client.post(
-                f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+                f"{TELEGRAM_API_BASE_FULL}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": f"{TELEGRAM_PARSE_MODE}"},
             )
 
     @staticmethod
-    async def notify_new_order(order_id: int, total_price: float, address: str):
+    async def notify_new_order(order_id: int, tenant_id: int, total_price: float, address: str):
         async with async_session_maker() as session:
-            # 👇 Ищем админа ВНУТРИ сервиса
-            admin_res = await session.execute(select(User).where(User.is_admin == True).limit(1))
-            admin = admin_res.scalar_one_or_none()
-
-            if not admin:
-                return
-
             recipients_res = await session.execute(
                 select(TelegramRecipient).where(
-                    TelegramRecipient.is_active == True,
-                    TelegramRecipient.user_id == admin.id
+                    TelegramRecipient.tenant_id == tenant_id,
+                    TelegramRecipient.is_active == True
                 )
             )
             recipients = recipients_res.scalars().all()

@@ -49,6 +49,8 @@ from app.schemas.statistics import (
 
 from app.schemas.telegram import (TelegramSettingsDTO, TelegramRecipientDTO, TelegramSyncDTO)
 
+from app.schemas.tenant import TenantResponse
+
 __all__ = [
     # Ingredient
     "IngredientCreate",
@@ -97,5 +99,7 @@ __all__ = [
 
     "TelegramSettingsDTO",
     "TelegramRecipientDTO",
-    "TelegramSyncDTO"
+    "TelegramSyncDTO",
+
+    "TenantResponse"
 ]

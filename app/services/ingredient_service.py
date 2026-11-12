@@ -10,13 +10,14 @@ class IngredientService:
     @staticmethod
     async def get_all(
             session: AsyncSession,
+            tenant_id: int,
             category: CategoryEnum | None = None,
             is_active: bool | None = None,
             page: int = 1,
             limit: int = 10,
     ) -> tuple[list[Ingredient], int]:
         """Вернуть список ингредиентов с фильтрами и общее количество."""
-        base = select(Ingredient)
+        base = select(Ingredient).where(Ingredient.tenant_id == tenant_id)
 
         if category is not None:
             base = base.where(Ingredient.category == category)
@@ -39,16 +40,16 @@ class IngredientService:
         return items, total
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, ingredient_id: int) -> Ingredient | None:
-        query = select(Ingredient).where(Ingredient.id == ingredient_id)
+    async def get_by_id(session: AsyncSession, ingredient_id: int, tenant_id: int) -> Ingredient | None:
+        query = select(Ingredient).where(Ingredient.tenant_id == tenant_id).where(Ingredient.id == ingredient_id)
         result = await session.execute(query)
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create(session: AsyncSession, data: IngredientCreate) -> Ingredient:
-        new_ingredient = Ingredient(**data.model_dump())
+    async def create(session: AsyncSession, data: IngredientCreate, tenant_id: int) -> Ingredient:
+        new_ingredient = Ingredient(**data.model_dump(), tenant_id=tenant_id)
         session.add(new_ingredient)
-        await session.flush()  # получаем id, created_at, updated_at
+        await session.flush()
         await session.refresh(new_ingredient)
         return new_ingredient
 
@@ -57,12 +58,12 @@ class IngredientService:
             session: AsyncSession,
             ingredient_id: int,
             data: IngredientUpdate,
+            tenant_id: int
     ) -> Ingredient | None:
-        ingredient = await IngredientService.get_by_id(session, ingredient_id)
+        ingredient = await IngredientService.get_by_id(session, ingredient_id, tenant_id)
         if ingredient is None:
             return None
 
-        # exclude_unset=True — берём только те поля, которые клиент реально передал
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(ingredient, field, value)
 
@@ -71,11 +72,10 @@ class IngredientService:
         return ingredient
 
     @staticmethod
-    async def delete(session: AsyncSession, ingredient_id: int) -> bool:
-        ingredient = await IngredientService.get_by_id(session, ingredient_id)
+    async def delete(session: AsyncSession, ingredient_id: int, tenant_id: int) -> bool:
+        ingredient = await IngredientService.get_by_id(session, ingredient_id, tenant_id)
         if ingredient is None:
             return False
 
         await session.delete(ingredient)
-        # await session.flush()
         return True

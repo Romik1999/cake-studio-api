@@ -2,7 +2,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Preset, PresetIngredient
+from app.models import Preset, PresetIngredient, Ingredient
 from app.schemas import PresetCreate, PresetUpdate
 
 
@@ -10,11 +10,12 @@ class PresetService:
     @staticmethod
     async def get_all(
             session: AsyncSession,
+            tenant_id: int,
             is_active: bool | None = None,
             page: int = 1,
             limit: int = 10
     ) -> tuple[list[Preset], int]:
-        base = select(Preset)
+        base = select(Preset).where(Preset.tenant_id == tenant_id)
 
         if is_active is not None:
             base = base.where(Preset.is_active == is_active)
@@ -33,41 +34,52 @@ class PresetService:
         return items, total
 
     @staticmethod
-    async def get_by_id(session: AsyncSession, preset_id: int) -> Preset | None:
-        query = (select(Preset)
-        .where(Preset.id == preset_id)
-        .options(
-            selectinload(Preset.preset_ingredients)
-            .selectinload(PresetIngredient.ingredient)
-        )
+    async def get_by_id(session: AsyncSession, preset_id: int, tenant_id: int) -> Preset | None:
+        query = (
+            select(Preset)
+            .where(Preset.id == preset_id, Preset.tenant_id == tenant_id)
+            .options(
+                selectinload(Preset.preset_ingredients)
+                .selectinload(PresetIngredient.ingredient)
+            )
         )
         result = await session.execute(query)
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create(session: AsyncSession, data: PresetCreate) -> Preset:
-        # 1. Создаём сам пресет без ингредиентов
+    async def create(session: AsyncSession, data: PresetCreate, tenant_id: int) -> Preset:
         preset_data = data.model_dump(exclude={"preset_ingredients"})
-        new_preset = Preset(**preset_data)
+        new_preset = Preset(**preset_data, tenant_id=tenant_id)
         session.add(new_preset)
-        await session.flush()  # получаем new_preset.id
-
-        # 2. Создаём PresetIngredient для каждого ингредиента
-        preset_ingredients = [
-            PresetIngredient(
-                preset_id=new_preset.id,
-                ingredient_id=item.ingredient_id,
-                quantity=item.quantity,
-            )
-            for item in data.preset_ingredients
-        ]
-        session.add_all(preset_ingredients)
         await session.flush()
 
-        # 3. Возвращаем пресет с подгруженными связями
+        if data.preset_ingredients:
+            ingredient_ids = {item.ingredient_id for item in data.preset_ingredients}
+            found = (await session.execute(
+                select(Ingredient.id).where(
+                    Ingredient.id.in_(ingredient_ids),
+                    Ingredient.tenant_id == tenant_id,
+                )
+            )).scalars().all()
+            missing = ingredient_ids - set(found)
+            if missing:
+                raise ValueError(f"Ingredient(s) not found in tenant: {sorted(missing)}")
+
+            preset_ingredients = [
+                PresetIngredient(
+                    preset_id=new_preset.id,
+                    ingredient_id=item.ingredient_id,
+                    quantity=item.quantity,
+                    tenant_id=tenant_id,
+                )
+                for item in data.preset_ingredients
+            ]
+            session.add_all(preset_ingredients)
+            await session.flush()
+
         query = (
             select(Preset)
-            .where(Preset.id == new_preset.id)
+            .where(Preset.id == new_preset.id, Preset.tenant_id == tenant_id)
             .options(
                 selectinload(Preset.preset_ingredients)
                 .selectinload(PresetIngredient.ingredient)
@@ -81,14 +93,12 @@ class PresetService:
             session: AsyncSession,
             preset_id: int,
             data: PresetUpdate,
+            tenant_id: int
     ) -> Preset | None:
-
-        # 1. Находим пресет (с подгрузкой ингредиентов)
-        current_preset = await PresetService.get_by_id(session, preset_id)
+        current_preset = await PresetService.get_by_id(session, preset_id, tenant_id)
         if current_preset is None:
             return None
 
-        # 2. Обновляем скалярные поля (без preset_ingredients)
         update_data = data.model_dump(
             exclude_unset=True,
             exclude={"preset_ingredients"},
@@ -96,29 +106,38 @@ class PresetService:
         for field, value in update_data.items():
             setattr(current_preset, field, value)
 
-        # 3. Если preset_ingredients передан — пересобираем состав
-        if "preset_ingredients" in data.model_dump(exclude_unset=True):
-            # Удаляем старые связи
+        if data.preset_ingredients is not None:
             for old_pi in list(current_preset.preset_ingredients):
                 await session.delete(old_pi)
 
-            # Создаём новые
-            new_preset_ingredients = [
-                PresetIngredient(
-                    preset_id=current_preset.id,
-                    ingredient_id=item.ingredient_id,
-                    quantity=item.quantity,
-                )
-                for item in data.preset_ingredients
-            ]
-            session.add_all(new_preset_ingredients)
+            if data.preset_ingredients:
+                ingredient_ids = {item.ingredient_id for item in data.preset_ingredients}
+                found = (await session.execute(
+                    select(Ingredient.id).where(
+                        Ingredient.id.in_(ingredient_ids),
+                        Ingredient.tenant_id == tenant_id,
+                    )
+                )).scalars().all()
+                missing = ingredient_ids - set(found)
+                if missing:
+                    raise ValueError(f"Ingredient(s) not found in tenant: {sorted(missing)}")
+
+                new_preset_ingredients = [
+                    PresetIngredient(
+                        preset_id=current_preset.id,
+                        ingredient_id=item.ingredient_id,
+                        quantity=item.quantity,
+                        tenant_id=tenant_id,
+                    )
+                    for item in data.preset_ingredients
+                ]
+                session.add_all(new_preset_ingredients)
 
         await session.flush()
 
-        # 4. Перезапрашиваем с подгрузкой актуального состава
         query = (
             select(Preset)
-            .where(Preset.id == current_preset.id)
+            .where(Preset.id == current_preset.id, Preset.tenant_id == tenant_id)
             .options(
                 selectinload(Preset.preset_ingredients)
                 .selectinload(PresetIngredient.ingredient)
@@ -128,8 +147,8 @@ class PresetService:
         return result.scalar_one()
 
     @staticmethod
-    async def delete(session: AsyncSession, preset_id: int) -> bool:
-        current_preset = await PresetService.get_by_id(session, preset_id)
+    async def delete(session: AsyncSession, preset_id: int, tenant_id: int) -> bool:
+        current_preset = await PresetService.get_by_id(session, preset_id, tenant_id)
         if current_preset is None:
             return False
 

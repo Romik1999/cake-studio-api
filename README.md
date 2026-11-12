@@ -2,15 +2,18 @@
 
 Backend-приложение для кондитерской: конструктор тортов на заказ + админка с аналитикой.
 
+**Мультитенантность:** Одна база данных, изоляция данных по `tenant_id` на уровне БД (Shared Schema + Composite Foreign Keys).
+
 ## Стек
 
 - **FastAPI** — веб-фреймворк
 - **PostgreSQL** — база данных
 - **SQLAlchemy (async)** — ORM
 - **Alembic** — миграции
-- **Pydantic v2** — валидация данных
-- **JWT (python-jose)** — авторизация и роли
+- **Pydantic v2 + pydantic-settings** — валидация данных и конфиг
+- **JWT (python-jose)** — авторизация и роли (CUSTOMER, ADMIN, SUPERADMIN)
 - **Docker / Docker Compose** — контейнеризация
+- **Ruff** — линтер и форматтер
 
 ## Структура проекта
 
@@ -18,22 +21,24 @@ Backend-приложение для кондитерской: конструкт
 cake-studio-api/
 ├── app/
 │   ├── api/
-│   │   ├── deps.py       # Зависимости (get_current_user, get_current_admin)
+│   │   ├── deps.py       # Зависимости (get_current_user, get_tenant_admin, get_superadmin)
 │   │   └── v1/           # Роуты (версия 1)
-│   │       ├── admin/    # Роуты статистики (только для админов)
+│   │       ├── admin/    # Статистика (только для админов тенанта)
+│   │       ├── superadmin/ # Управление тенантами (только для суперадмина)
 │   │       ├── auth.py
 │   │       ├── cake_configs.py
 │   │       ├── ingredients.py
 │   │       ├── orders.py
 │   │       └── presets.py
-│   ├── core/             # Безопасность (хеширование, JWT)
-│   ├── models/           # SQLAlchemy-модели
+│   ├── core/             # Безопасность (JWT, хеширование, шифрование)
+│   ├── models/           # SQLAlchemy-модели (с tenant_id и composite FK)
 │   ├── schemas/          # Pydantic-схемы
-│   ├── services/         # Бизнес-логика
-│   ├── config.py         # Настройки
+│   ├── services/         # Бизнес-логика (изоляция по tenant_id)
+│   ├── config.py         # Настройки (BaseSettings)
 │   ├── database.py       # Подключение к БД
-│   ├── seed_demo.py      # Заполнение БД демо-данными
+│   ├── seed.py           # Заполнение БД демо-данными
 │   └── main.py           # Точка входа
+├── docs/                 # Документация (Postman collection)
 ├── migrations/           # Alembic-миграции
 ├── docker-compose.yml
 ├── Dockerfile
@@ -44,14 +49,13 @@ cake-studio-api/
 ## Переменные окружения (`.env`)
 
 ```env
+ENV=local
+
 APP_NAME=cake-studio-api
 APP_VERSION=1.0.0
 
 # Для Docker
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/cake-studio-api
-
-# Для локального запуска
-# DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/cake-studio-api
 
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
@@ -60,6 +64,17 @@ POSTGRES_DB=cake-studio-api
 SECRET_KEY=change-me-super-secret-key
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Ключ для шифрования (Fernet)
+# Сгенерировать: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY=your-fernet-key-here
+
+# CORS (для фронта)
+CORS_ORIGINS=["http://localhost:5173"]
+CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)?cake-studio\.ru
+
+# Тенант по умолчанию для локальной разработки
+TENANT_DEFAULT_SLUG=moments
 ```
 
 ---
@@ -69,22 +84,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 ### Первый запуск
 
 ```bash
-# Собрать образы и поднять контейнеры
+# Собрать образы и поднять контейнеры (с healthcheck для БД)
 docker-compose up -d --build
 
-# Применить миграции (создать таблицы)
-docker-compose exec api alembic upgrade head
+# Применить миграции (создать таблицы, enum-типы, composite FK)
+docker-compose run --rm api alembic upgrade head
 
-# Заполнить БД тестовыми данными (ингредиенты, пресеты, заказы, юзеры)
-docker-compose exec api python -m app.seed_demo
+# Заполнить БД тестовыми данными (3 тенанта, ингредиенты, пресеты, заказы)
+docker-compose run --rm api python -m app.seed
 ```
 
 Приложение доступно: http://localhost:8000  
 Swagger (Документация): http://localhost:8000/docs
 
-> **Данные для входа в админку после сида:**
-> - **Телефон:** `79990000000`
-> - **Пароль:** `admin123`
+> **Данные для входа после сида (пароль у всех `admin123`):**
+> - **Суперадмин (Платформа):** `+79000000000` (Header: `X-Tenant: platform`)
+> - **Админ "Моменты сладости":** `+79001111111` (Header: `X-Tenant: moments`)
+> - **Админ "Тестовой пекарни":** `+79002222222` (Header: `X-Tenant: bakery2`)
+
+> ⚠️ **ВАЖНО:** При тестировании через `localhost` (Swagger или Postman) **обязательно** передавайте заголовок `X-Tenant` со слагом нужной кондитерской. Без него бэкенд не поймет, к какой базе применять запрос. В продакшене тенант будет определяться автоматически по поддомену (например, `moments.cake-studio.ru`).
 
 ### Ежедневная работа
 
@@ -109,13 +127,13 @@ docker-compose up -d --build
 
 ```bash
 # Создать новую миграцию
-docker-compose exec api alembic revision --autogenerate -m "описание"
+docker-compose run --rm api alembic revision --autogenerate -m "описание"
 
 # Применить
-docker-compose exec api alembic upgrade head
+docker-compose run --rm api alembic upgrade head
 
 # Откатить последнюю
-docker-compose exec api alembic downgrade -1
+docker-compose run --rm api alembic downgrade -1
 ```
 
 ---
@@ -130,7 +148,7 @@ python -m venv .venv
 source .venv/bin/activate          # macOS / Linux
 # .venv\Scripts\activate           # Windows
 
-# Установить зависимости
+# Установить зависимости (включая Ruff)
 pip install -r requirements.txt
 
 # Убедиться, что PostgreSQL запущен локально (например, через brew)
@@ -141,7 +159,7 @@ createdb cake-studio-api
 alembic upgrade head
 
 # Заполнить БД демо-данными
-python -m app.seed_demo
+python -m app.seed
 ```
 
 ### Ежедневная работа
@@ -157,54 +175,60 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Все эндпоинты имеют префикс `/api/v1`.
 
-**Авторизация:**
-- `POST /auth/register` — Регистрация клиента
-- `POST /auth/login` — Получение JWT-токена
+**Авторизация (требуют заголовок `X-Tenant`):**
+- `POST /auth/register` — Регистрация клиента (автоматически привязывается к текущему тенанту)
+- `POST /auth/login` — Получение JWT-токена (возвращает `tenant_slug` и `role`)
 - `GET /auth/me` — Профиль текущего пользователя
 
 **Конструктор и справочники:**
-- `GET /ingredients` — Список ингредиентов (с фильтрами)
-- `POST/PATCH/DELETE /ingredients` — Управление (только админ)
-- `GET /presets` — Список готовых пресетов
-- `POST/PATCH/DELETE /presets` — Управление (только админ)
-- `POST /cake-configs` — Собрать кастомный торт или выбрать пресет (автоматический расчёт цены)
-- `GET /cake-configs` — Список конфигураций
+- `GET /ingredients` — Список ингредиентов тенанта (с фильтрами)
+- `POST/PATCH/DELETE /ingredients` — Управление (только `ADMIN` тенанта)
+- `GET /presets` — Список готовых пресетов тенанта
+- `POST/PATCH/DELETE /presets` — Управление (только `ADMIN` тенанта)
+- `POST /cake-configs` — Собрать кастомный торт (автоматический расчёт цены, проверка чужих ингредиентов)
+- `GET /cake-configs` — Список конфигураций тенанта
 
 **Заказы:**
-- `POST /orders` — Создать заказ (публичный, клиент создается автоматически по телефону)
-- `GET /orders` — Список заказов (админ видит все, клиент — только свои)
+- `POST /orders` — Создать заказ (клиент создается автоматически по телефону)
+- `GET /orders` — Список заказов (админ видит все заказы тенанта, клиент — только свои)
 - `GET /orders/{id}` — Детали заказа
-- `PATCH /orders/{id}/status` — Сменить статус (только админ)
+- `PATCH /orders/{id}/status` — Сменить статус (только `ADMIN` тенанта)
 - `PATCH /orders/{id}/cancel` — Отменить заказ
 
-**Аналитика (только для админа):**
+**Аналитика (только для админа тенанта):**
 - `GET /admin/statistics/daily` — Продажи по дням
 - `GET /admin/statistics/popular-ingredients` — Топ популярных начинок
 - `GET /admin/statistics/revenue` — Общая выручка и средний чек
 - `GET /admin/statistics/frequent-customers` — Частые клиенты
 - `GET /admin/statistics/cancelled` — Список отмененных заказов
 
+**Управление платформой (только для `SUPERADMIN`):**
+- `GET /superadmin/tenants` — Список всех кондитерских на платформе
+
 ---
 
 ## 🧪 Тестирование (Swagger)
 
 1. Откройте `http://localhost:8000/docs`.
-2. Авторизуйтесь через `POST /auth/login` (используйте телефон и пароль админа из сида).
-3. Скопируйте `access_token`.
-4. Нажмите кнопку **Authorize** (замочек в правом верхнем углу) и вставьте токен.
-5. Теперь вам доступны защищенные ручки (создание ингредиентов, статистика и т.д.).
+2. Нажмите кнопку **Authorize** (замочек в правом верхнем углу).
+3. В поле `X-Tenant` введите слаг кондитерской (например, `moments`).
+4. Авторизуйтесь через `POST /auth/login` (используйте телефон и пароль админа из сида).
+5. Скопируйте `access_token` и вставьте его в поле `Bearer` в окне **Authorize**.
+6. Теперь вам доступны защищенные ручки. Если вы попытаетесь сделать запрос с токеном `moments` к `X-Tenant: bakery2`, сервер вернет `401 Unauthorized`.
 
 ---
 
 ## Функциональность (Статус MVP)
 
-- [x] Модели БД и миграции (User, Ingredient, Preset, CakeConfig, Order, StatusLog)
-- [x] CRUD для ингредиентов и пресетов
-- [x] Ролевая модель и JWT-авторизация
-- [x] Конструктор тортов с динамическим расчётом цены
+- [x] Мультитенантность (изоляция на уровне Composite FK в БД)
+- [x] Модели БД и миграции (User, Ingredient, Preset, CakeConfig, Order, StatusLog, Tenant)
+- [x] CRUD для ингредиентов и пресетов (в рамках тенанта)
+- [x] Ролевая модель (`CUSTOMER`, `ADMIN`, `SUPERADMIN`) и JWT
+- [x] Конструктор тортов с динамическим расчётом цены (защита от чужих ингредиентов)
 - [x] Оформление заказов и трекинг статусов
-- [x] Панель аналитики для владельца
-- [x] Скрипт демо-данных для презентации
+- [x] Панель аналитики для владельца (строго по своему тенанту)
+- [x] Изолированные Telegram-уведомления для каждого тенанта
+- [x] Скрипт демо-данных (3 тенанта)
 
 ## Лицензия
 

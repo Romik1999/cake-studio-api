@@ -1,52 +1,71 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Integer, DateTime, func, ForeignKey, Numeric
+from sqlalchemy import (
+    Integer, DateTime, func, ForeignKey, ForeignKeyConstraint,
+    Numeric, CheckConstraint, UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.models.order import Order
 
 
 class CakeConfig(Base):
     __tablename__ = "cake_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-
-    # Корж (если кастомный сбор)
-    dough_id: Mapped[int | None] = mapped_column(
-        ForeignKey("ingredients.id", ondelete="RESTRICT"),
-        nullable=True
+    tenant_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tenants.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
     )
-
-    # Пресет (если выбран готовый)
-    preset_id: Mapped[int | None] = mapped_column(
-        ForeignKey("presets.id", ondelete="RESTRICT"),
-        nullable=True
-    )
-
+    dough_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     base_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     decoration: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(),
+    )
 
-    # Связь с промежуточной таблицей (ингредиенты торта)
     cake_ingredients: Mapped[list["CakeIngredient"]] = relationship(
-        back_populates="cake_config",
-        cascade="all, delete-orphan"
+        "CakeIngredient",
+        primaryjoin="and_(foreign(CakeIngredient.tenant_id) == CakeConfig.tenant_id, foreign(CakeIngredient.cake_config_id) == CakeConfig.id)",
+        viewonly=True,
+    )
+    dough: Mapped["Ingredient | None"] = relationship(
+        "Ingredient",
+        primaryjoin="and_(foreign(CakeConfig.tenant_id) == Ingredient.tenant_id, foreign(CakeConfig.dough_id) == Ingredient.id)",
+        viewonly=True,
+    )
+    preset: Mapped["Preset | None"] = relationship(
+        "Preset",
+        primaryjoin="and_(foreign(CakeConfig.tenant_id) == Preset.tenant_id, foreign(CakeConfig.preset_id) == Preset.id)",
+        viewonly=True,
+    )
+    orders: Mapped[list["Order"]] = relationship(
+        "Order",
+        primaryjoin="and_(foreign(Order.tenant_id) == CakeConfig.tenant_id, foreign(Order.cake_config_id) == CakeConfig.id)",
+        viewonly=True,
     )
 
-    # Связь с коржом (объект Ingredient)
-    dough: Mapped["Ingredient"] = relationship(
-        foreign_keys=[dough_id]
+    __table_args__ = (
+        CheckConstraint(
+            '(dough_id IS NOT NULL) <> (preset_id IS NOT NULL)',
+            name='ck_cake_config_exactly_one_source',
+        ),
+        UniqueConstraint('tenant_id', 'id', name='uq_cake_config_tenant_id'),
+        ForeignKeyConstraint(
+            ['tenant_id', 'dough_id'],
+            ['ingredients.tenant_id', 'ingredients.id'],
+            ondelete='RESTRICT',
+            name='fk_cake_config_tenant_dough',
+        ),
+        ForeignKeyConstraint(
+            ['tenant_id', 'preset_id'],
+            ['presets.tenant_id', 'presets.id'],
+            ondelete='RESTRICT',
+            name='fk_cake_config_tenant_preset',
+        ),
     )
-
-    # Связь с пресетом (объект Preset)
-    preset: Mapped["Preset"] = relationship(
-        foreign_keys=[preset_id]
-    )
-
-    order: Mapped["Order"] = relationship("Order", back_populates="cake_config")

@@ -6,19 +6,25 @@ services:
     volumes:
       - .:/app
     env_file:
-      - .env  # 👈 ГРУЗИМ ВСЁ ИЗ .env
+      - .env
     depends_on:
-      - db
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --proxy-headers --forwarded-allow-ips="*"
 
   db:
     image: postgres:15
     env_file:
-      - .env  # 👈 ТОЖЕ ГРУЗИМ .env
+      - .env
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432" # Скрываем от внешнего мира
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
 volumes:
   postgres_data:

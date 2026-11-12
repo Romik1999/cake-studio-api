@@ -11,7 +11,9 @@ from app.models import (
     User,
     Ingredient,
     CakeIngredient,
+    CakeConfig,
     PresetIngredient,
+    Preset,
 )
 from app.schemas import (
     DailySalesItem,
@@ -27,6 +29,7 @@ class StatisticsService:
     @staticmethod
     async def get_daily_sales(
             session: AsyncSession,
+            tenant_id: int,
             start_date: date,
             end_date: date,
     ) -> tuple[list[DailySalesItem], Decimal, int]:
@@ -36,6 +39,7 @@ class StatisticsService:
                 func.count(Order.id).label("orders_count"),
                 func.sum(Order.total_price).label("total_revenue"),
             )
+            .where(Order.tenant_id == tenant_id)
             .where(Order.status == StatusEnum.DELIVERED)
             .where(Order.delivery_date >= start_date)
             .where(Order.delivery_date <= end_date)
@@ -65,11 +69,19 @@ class StatisticsService:
     @staticmethod
     async def get_popular_ingredients(
             session: AsyncSession,
+            tenant_id: int,
             limit: int = 10,
     ) -> list[PopularIngredientItem]:
-        # Объединяем usage из cake_ingredients и preset_ingredients
-        cake_usage = select(CakeIngredient.ingredient_id.label("ingredient_id"))
-        preset_usage = select(PresetIngredient.ingredient_id.label("ingredient_id"))
+        cake_usage = (
+            select(CakeIngredient.ingredient_id.label("ingredient_id"))
+            .join(CakeConfig, CakeConfig.id == CakeIngredient.cake_config_id)
+            .where(CakeConfig.tenant_id == tenant_id)
+        )
+        preset_usage = (
+            select(PresetIngredient.ingredient_id.label("ingredient_id"))
+            .join(Preset, Preset.id == PresetIngredient.preset_id)
+            .where(Preset.tenant_id == tenant_id)
+        )
 
         union_query = union_all(cake_usage, preset_usage).subquery()
 
@@ -81,6 +93,7 @@ class StatisticsService:
                 func.count(union_query.c.ingredient_id).label("usage_count"),
             )
             .join(union_query, Ingredient.id == union_query.c.ingredient_id)
+            .where(Ingredient.tenant_id == tenant_id)
             .group_by(Ingredient.id, Ingredient.title, Ingredient.category)
             .order_by(func.count(union_query.c.ingredient_id).desc())
             .limit(limit)
@@ -104,6 +117,7 @@ class StatisticsService:
     @staticmethod
     async def get_revenue(
             session: AsyncSession,
+            tenant_id: int,
             start_date: date,
             end_date: date,
     ) -> tuple[Decimal, Decimal, int]:
@@ -112,6 +126,7 @@ class StatisticsService:
                 func.sum(Order.total_price).label("total_revenue"),
                 func.count(Order.id).label("orders_count"),
             )
+            .where(Order.tenant_id == tenant_id)
             .where(Order.status == StatusEnum.DELIVERED)
             .where(Order.delivery_date >= start_date)
             .where(Order.delivery_date <= end_date)
@@ -134,6 +149,7 @@ class StatisticsService:
     @staticmethod
     async def get_frequent_customers(
             session: AsyncSession,
+            tenant_id: int,
             limit: int = 10,
     ) -> list[FrequentCustomerItem]:
         query = (
@@ -144,6 +160,7 @@ class StatisticsService:
                 func.count(Order.id).label("orders_count"),
                 func.sum(Order.total_price).label("total_spent"),
             )
+            .where(User.tenant_id == tenant_id)
             .join(Order, Order.user_id == User.id)
             .where(Order.status != StatusEnum.CANCELLED)
             .group_by(User.id, User.name, User.phone)
@@ -170,10 +187,14 @@ class StatisticsService:
     @staticmethod
     async def get_cancelled_orders(
             session: AsyncSession,
+            tenant_id: int,
             page: int = 1,
             limit: int = 10,
     ) -> tuple[list[Order], int]:
-        base = select(Order).where(Order.status == StatusEnum.CANCELLED)
+        base = select(Order).where(
+            Order.tenant_id == tenant_id,
+            Order.status == StatusEnum.CANCELLED,
+        )
 
         count_query = select(func.count()).select_from(base.subquery())
         total = (await session.execute(count_query)).scalar() or 0

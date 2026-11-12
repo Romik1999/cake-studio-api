@@ -1,15 +1,20 @@
-import os
 from cryptography.fernet import Fernet
 
-KEY = os.getenv("ENCRYPTION_KEY")
+from app.config import get_settings
 
-if not KEY:
-    raise ValueError("ENCRYPTION_KEY is not set in .env")
+_cipher: Fernet | None = None
 
-cipher = Fernet(KEY.encode())
+
+def _get_cipher() -> Fernet:
+    global _cipher
+    if _cipher is None:
+        _cipher = Fernet(get_settings().ENCRYPTION_KEY.encode())
+    return _cipher
+
 
 def encrypt_token(token: str) -> str:
-    return cipher.encrypt(token.encode()).decode()
+    return _get_cipher().encrypt(token.encode()).decode()
+
 
 def decrypt_token(encrypted_token: str) -> str:
-    return cipher.decrypt(encrypted_token.encode()).decode()
+    return _get_cipher().decrypt(encrypted_token.encode()).decode()
