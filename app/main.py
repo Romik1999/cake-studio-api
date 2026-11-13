@@ -30,7 +30,7 @@ app.add_middleware(
     allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*", "X-Tenant"],
+    allow_headers=["*"],
 )
 
 
